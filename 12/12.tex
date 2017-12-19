@@ -7,7 +7,7 @@
 
 \begin{document}
 
-\lecture{12}{October 16}{Sasha Rush}{Alexander Goldberg, Daniel Eaton, George Han, Moritz Graule}{Recurrent Neural Networks}
+\lecture{12}{October 16}{Sasha Rush}{Alexander Goldberg, Daniel Eaton, George Han, Moritz Graule, Kristo Ment}{Recurrent Neural Networks}
 
 \subsection{Introduction}
 Recall the basic structure of a time series model:
@@ -274,6 +274,55 @@ In this model, a sentence from the first language is fed in word by word (each $
 Now in the decoder, another RNN is run in reverse that spits out words in the second, translated, language. Each translated word  $y_i$ depends on the current layer in the decoder RNN, $h_i$, C and the last translated word (to prevent the same word from being generated multiple times). 
 \begin{remark}
 We will talk about \emph{Information Theory} in the next lecture.
+
+\subsection{Practical Exercise: Speech Generator}
+
+RNNs have been used successfully as speech generators, taking in a sequence of letters (or words) and predicting subsequent letters (words). Implement and train a character-level RNN with PyTorch, and use it to sample a sentence.
+
+\subsubsection{Solution}
+
+The architecture of the RNN can be conveniently implemented with torch.nn. As our training data, we downloaded all of Donald Trump's 2016 campaign speeches from \url{http://www.presidency.ucsb.edu/2016_election.php}. The concatenated data is available \href{run:speeches_concat.txt}{here} (size: 1.3 MB). To facilitate the training process, we only included lowercase letters and a few additional symbols \verb| .:?[]| from the raw data, for a total of \verb|n_letters=32| characters. We then assembled a training set by randomly drawing 10,000 30-character sequences from the data, and used each of these to predict the next (31st) characters. We also generated a validation set by similarly drawing 500 additional character sequences. All of the input data must be converted to one-hot vectors: the entire training set was stored as an 30x10000x32 array, as required by \verb|torch.nn.LSTM| below.
+
+We then proceeded to set up an RNN with long-short term memory (LSTM), 2 layers, and \verb|n_hidden=200| as follows:
+\begin{lstlisting}[language=Python]
+model = torch.nn.Sequential()
+model.add_module("lstm", torch.nn.LSTM(n_letters, n_hidden, 2))
+model.add_module("encoder", torch.nn.Linear(n_hidden, n_letters))
+\end{lstlisting}
+The linear ``encoder'' layer is necessary to convert the output of the final LSTM layer to 32 probabilities, each for a single character. A \verb|dropout| parameter can be added to the LSTM call in order to prevent overfitting (this will randomly overwrite some input nodes with zeros). We then implement the loss function via a cross-entropy layer which includes a \verb|LogSoftmax()| function:
+\begin{lstlisting}[language=Python]
+loss = torch.nn.CrossEntropyLoss()
+\end{lstlisting}
+Finally, we choose Adam from \verb|torch.optim| as our optimizer:
+\begin{lstlisting}[language=Python]
+optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
+\end{lstlisting}
+
+The model is then trained over a significant number of epochs: it took us a few hours to get through 300 epochs on a single CPU. This performance can likely be improved by utilizing the \verb|torch.cuda| library to run the training on a GPU instead. The training function for a single epoch can be implemented as follows:
+\begin{lstlisting}[language=Python]
+# Train the RNN and return the loss
+def train(model, optimizer, data, target):
+    
+    optimizer.zero_grad()
+    output, hc = model.lstm(data)
+    new_loss = loss(model.encoder(output[-1]), target)
+    new_loss.backward()
+    optimizer.step()
+    return new_loss.data[0]
+\end{lstlisting}
+Note that we are only using the last step of the output to compare against the target: we are interested in predicting the 31st character after seeing the entire 30-character sequence. We can monitor the training and validation losses to check for convergence and overfitting.
+
+Finally, we can feed the trained model any input sequence and let it predict the next (say, 140) characters. For example, after 175 epochs of training, simply feeding the network ``Trump:'' yields the following sentence:
+\begin{lstlisting}[language=TeX,breaklines=True]
+Trump: i an presisent of the sime and i wat the worlica tore and the spaising our componitien and i wat of the spared the worled the worle and the spaiting our communitien
+\end{lstlisting}
+This already begins to sound like real speech, considering the fact that the RNN had to learn the language from scratch! In any case, humans take years to learn to speak whereas we have only been training for a few hours. At 300 epochs, we obtained samples like this:
+\begin{lstlisting}[language=TeX,breaklines=True]
+Trump:ey southon fac cort the whale getton. buoller campouse tilathad sumplee ours dousting to beokew athing the semerica ince forette. [applause]
+\end{lstlisting}
+However, both training and validation losses were still, at that point, declining rapidly. Thus, further training will likely result in an improved performance.
+
+This solution is merely an outline to a plausible more successful algorithm. In particular, we can expand the size of the model, the number of training sequences, or the sequence length, or tweak other relevant model parameters to train a smarter speech generator. The Python code used for this write-up can be downloaded \href{run:trump_generator.py}{here}.
+
 \end{remark}
 \end{document}
-
